@@ -2,9 +2,10 @@
 
 const colors = require('colors')
 const fetch = require('node-fetch')
-const { URLSearchParams } = require('url')
+const { URL, URLSearchParams } = require('url')
 const fs = require('fs')
 const path = require('path')
+
 
 const publication = 'trend-r'
 
@@ -13,11 +14,11 @@ const opts = {
     headers: {
         'Accept': 'application/json',
     },
-    timeout: 5000, // ms
+    // timeout: 10000, // ms
 }
 
 async function scrape(to) {
-    const limit = 10
+    const limit = 20
 
     const query = new URLSearchParams({
         sortBy: 'latest',
@@ -31,13 +32,19 @@ async function scrape(to) {
         .then(j => JSON.parse(j))
         .catch(err => console.log(err))
 
-    const downloaded = Promise.all(list.payload.value.map(post =>
-        fetch(buildMediumURL(post, list.payload), opts)
+    list.payload.value.forEach(post => {
+        const url = buildMediumURL(post, list.payload)
+        fetch(url, opts)
             .then(r => savePost(r, post))
-    ))
+            .then(_ => console.log(`💚 ${post.title}`.green))
+            .catch(err => `💔 Error downloading ${post.title}
+            url: ${url}
+            ${err}
+            `.red)
+    })
 
     try {
-        scrape(list.payload.paging.next.to)
+        setTimeout(_ => scrape(list.payload.paging.next.to), 10000)
     } catch (err) {
         console.log("Finished!".blue)
     }
@@ -55,20 +62,21 @@ function buildMediumURL(post, payload) {
     const domain = payload.references.Collection[collectionId].domain
     const slug = post.uniqueSlug
     
-    return `https://${domain}/${slug}`
+    const url = new URL(`https://${domain}`)
+    url.pathname = slug
+    
+    return url.toString()
 }
 function savePost(response, post) {
     return new Promise((win, fail) => {
         const filename = `out/${post.uniqueSlug}.html`
         const f = fs.createWriteStream(filename)
-        f.on('finish', _ => {
-            console.log(`😀 Successfully downloaded ${post.title}`.green)
-            win()
-        })
+        f.on('finish', _ => win())
         f.on('error', _ => {
             console.log(`😫 Error downloading ${post.title}`.red)
             fail()
         })
+
         response.body.pipe(f)
     })
 }
